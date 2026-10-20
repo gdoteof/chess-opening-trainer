@@ -1,17 +1,19 @@
 import { useDeferredValue, useMemo, useState } from 'react'
-import { openingsThrough, rankForGame } from '../domain/book'
+import { openingsThrough, openingTree, rankForGame } from '../domain/book'
 import { fenKey, formatLine, START_FEN, type Color } from '../domain/chess'
 import { browsingCancelled, browsingStarted, drillSideChosen, explorerReset, explorerUndone } from '../store/drillSlice'
 import { useAppDispatch, useAppSelector, useBook } from '../store/hooks'
 import { selectExplorerFens } from '../store/selectors'
-import { chooseOpening, startDrill } from '../store/thunks'
+import { chooseOpening, restartProgress, startDrill } from '../store/thunks'
+import { Eco } from './Eco'
 import { SidePicker } from './SidePicker'
 
 const MAX_RESULTS = 80
 
 export function DrillSetup() {
   const dispatch = useAppDispatch()
-  const { opening, side, browsing } = useAppSelector((state) => state.drill)
+  const book = useBook()
+  const { opening, side, browsing, played } = useAppSelector((state) => state.drill)
 
   const chooseSide = (color: Color) => {
     dispatch(drillSideChosen(color))
@@ -19,11 +21,18 @@ export function DrillSetup() {
   }
 
   if (opening && !browsing) {
+    const total = openingTree(book, opening).lineIds.length
     return (
       <section className="setup">
         <p className="setup-current">
           Drilling <strong>{opening}</strong>
         </p>
+        <div className="progress">
+          <progress max={total} value={played.length} aria-label="Lines played" />
+          <span>
+            {played.length} of {total} line{total === 1 ? '' : 's'} played
+          </span>
+        </div>
         <SidePicker label="You play" value={side} onChange={chooseSide} />
         <div className="setup-actions">
           <button type="button" className="button" onClick={() => dispatch(startDrill())}>
@@ -32,6 +41,11 @@ export function DrillSetup() {
           <button type="button" className="button" onClick={() => dispatch(browsingStarted())}>
             Change opening
           </button>
+          {played.length > 0 && (
+            <button type="button" className="button" onClick={() => dispatch(restartProgress())}>
+              Reset progress
+            </button>
+          )}
         </div>
       </section>
     )
@@ -96,7 +110,15 @@ function OpeningSearch({ onChoose, onCancel }: { onChoose(name: string): void; o
     })
     // With nothing to go on, lead with whole families (names without a variation).
     if (!terms.length && !explored) found = found.filter((o) => !o.name.includes(':'))
-    return rankForGame(book, explorerFens, found)
+    found = rankForGame(book, explorerFens, found)
+    if (!terms.length) return found
+    // Names that start with or contain the query as typed come before scattered word matches.
+    const phrase = terms.join(' ')
+    const closeness = (name: string) => {
+      const lower = name.toLowerCase()
+      return lower === phrase ? 0 : lower.startsWith(phrase) ? 1 : lower.includes(phrase) ? 2 : 3
+    }
+    return found.sort((a, b) => closeness(a.name) - closeness(b.name))
   }, [book, deferred, explored, explorerFens, reachable])
 
   return (
@@ -122,7 +144,7 @@ function OpeningSearch({ onChoose, onCancel }: { onChoose(name: string): void; o
             <button type="button" className="search-result" onClick={() => onChoose(o.name)}>
               <span className="search-result-name">{o.name}</span>
               <span className="search-result-meta">
-                {o.eco}
+                <Eco code={o.eco} />
                 {o.lineCount > 1 && `, ${o.lineCount} lines`}
               </span>
             </button>

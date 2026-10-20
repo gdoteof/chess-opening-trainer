@@ -44,6 +44,8 @@ class ScriptedEngine {
 const tsv = [
   'eco\tname\tpgn',
   'C50\tItalian Game\t1. e4 e5 2. Nf3 Nc6 3. Bc4',
+  'C50\tItalian Game: Giuoco Piano\t1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5',
+  'C55\tItalian Game: Two Knights Defense\t1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6',
   'C40\tKing\'s Knight Opening\t1. e4 e5 2. Nf3',
 ].join('\n')
 
@@ -88,16 +90,48 @@ describe('opening drill', () => {
     expect(store.getState().game.moves).toHaveLength(2)
   })
 
-  it('reports the line complete when the book runs out', async () => {
+  it('works through every line of the opening, one after another', async () => {
     const { store } = setup()
-    store.dispatch(openingChosen('Italian Game'))
-    store.dispatch(startDrill())
-    for (const move of ['e2e4', 'g1f3', 'f1c4']) {
-      store.dispatch(attemptPlayerMove(move))
-      await vi.advanceTimersByTimeAsync(1000)
+    store.dispatch(chooseOpening('Italian Game'))
+    const playLine = async () => {
+      for (const move of ['e2e4', 'g1f3', 'f1c4']) {
+        store.dispatch(attemptPlayerMove(move))
+        await vi.advanceTimersByTimeAsync(1000)
+      }
+      return store.getState().game.moves.map((m) => m.san)
     }
-    expect(store.getState().game.moves.map((m) => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bc4'])
+
+    expect(await playLine()).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5'])
     expect(store.getState().game.finish).toEqual({ kind: 'lineComplete' })
+    expect(store.getState().drill.played).toHaveLength(2)
+    expect(store.getState().drill.playedThisLine).toBe(2)
+
+    await vi.advanceTimersByTimeAsync(2500)
+    expect(store.getState().game.phase).toBe('player')
+    expect(await playLine()).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Nf6'])
+    expect(store.getState().drill.played).toHaveLength(3)
+    expect(store.getState().drill.playedThisLine).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(store.getState().game.finish).toEqual({ kind: 'lineComplete' })
+    expect(store.getState().game.moves).toHaveLength(6)
+  })
+
+  it('forgets progress when a different opening is chosen', async () => {
+    const { store } = setup()
+    store.dispatch(chooseOpening('Italian Game'))
+    store.dispatch(attemptPlayerMove('e2e4'))
+    await vi.advanceTimersByTimeAsync(1000)
+    store.dispatch(attemptPlayerMove('g1f3'))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(store.getState().drill.played).toHaveLength(0)
+    store.dispatch(attemptPlayerMove('f1c4'))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(store.getState().drill.played).toHaveLength(2)
+    store.dispatch(chooseOpening('Italian Game'))
+    expect(store.getState().drill.played).toHaveLength(2)
+    store.dispatch(chooseOpening("King's Knight Opening"))
+    expect(store.getState().drill.played).toHaveLength(0)
   })
 
   it('plays the first move for a player who chose black', async () => {

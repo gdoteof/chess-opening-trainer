@@ -157,17 +157,45 @@ function prefixRange(lines: BookLine[], prefix: string): [number, number] {
   return [start, Math.max(start, end)]
 }
 
-/** Book moves per position for the chosen opening: its own lines plus every sub-variation. */
-export type BookTree = Map<FenKey, Uci[]>
+/** The chosen opening's lines (its own plus every sub-variation), indexed for drilling. */
+export interface OpeningTree {
+  /** Book moves per position. */
+  moves: Map<FenKey, Uci[]>
+  /** Indices into `book.lines` of the lines in the tree. */
+  lineIds: number[]
+  /** The lines that end at each position. */
+  endingAt: Map<FenKey, number[]>
+}
 
-export function bookTree(book: Book, openingName: string): BookTree {
-  const tree: BookTree = new Map()
+const treeCache = new WeakMap<Book, Map<string, OpeningTree>>()
+
+/** The tree of an opening, built once per book and name. */
+export function openingTree(book: Book, openingName: string): OpeningTree {
+  let trees = treeCache.get(book)
+  if (!trees) {
+    trees = new Map()
+    treeCache.set(book, trees)
+  }
+  let tree = trees.get(openingName)
+  if (!tree) {
+    tree = buildTree(book, openingName)
+    trees.set(openingName, tree)
+  }
+  return tree
+}
+
+function buildTree(book: Book, openingName: string): OpeningTree {
+  const tree: OpeningTree = { moves: new Map(), lineIds: [], endingAt: new Map() }
   const [start, end] = prefixRange(book.lines, openingName)
-  for (const line of book.lines.slice(start, end)) {
+  for (let id = start; id < end; id++) {
+    const line = book.lines[id]
+    tree.lineIds.push(id)
+    const endKey = line.fenKeys[line.fenKeys.length - 1]
+    tree.endingAt.set(endKey, [...(tree.endingAt.get(endKey) ?? []), id])
     line.moves.forEach((move, i) => {
       const key = line.fenKeys[i]
-      const moves = tree.get(key)
-      if (!moves) tree.set(key, [move])
+      const moves = tree.moves.get(key)
+      if (!moves) tree.moves.set(key, [move])
       else if (!moves.includes(move)) moves.push(move)
     })
   }

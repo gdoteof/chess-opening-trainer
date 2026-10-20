@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bookTree, buildBook, namesAlong, openingAt, openingsThrough, parseOpeningsTsv, rankForGame } from './book'
+import { buildBook, openingTree, namesAlong, openingAt, openingsThrough, parseOpeningsTsv, rankForGame } from './book'
 import { fenKey, playUci, START_FEN } from './chess'
 
 const tsv = [
@@ -51,14 +51,20 @@ describe('buildBook', () => {
   })
 })
 
-describe('bookTree', () => {
+describe('openingTree', () => {
   it('includes the chosen line and its sub-variations only', () => {
-    const tree = bookTree(book, 'Italian Game')
+    const tree = openingTree(book, 'Italian Game')
     const afterBc4 = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4').at(-1)!
     const afterNc6 = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6').at(-1)!
-    expect(tree.get(fenKey(afterBc4))?.sort()).toEqual(['f8c5', 'g8f6'])
-    expect(tree.get(fenKey(afterNc6))).toEqual(['f1c4'])
-    expect(tree.get(fenKey(START_FEN))).toEqual(['e2e4'])
+    expect(tree.moves.get(fenKey(afterBc4))?.sort()).toEqual(['f8c5', 'g8f6'])
+    expect(tree.moves.get(fenKey(afterNc6))).toEqual(['f1c4'])
+    expect(tree.moves.get(fenKey(START_FEN))).toEqual(['e2e4'])
+    expect(tree.lineIds.map((id) => book.lines[id].name)).toEqual([
+      'Italian Game',
+      'Italian Game: Giuoco Piano',
+      'Italian Game: Two Knights Defense',
+    ])
+    expect(tree.endingAt.get(fenKey(afterBc4))?.map((id) => book.lines[id].name)).toEqual(['Italian Game'])
   })
 })
 

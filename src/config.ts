@@ -54,6 +54,8 @@ export const config = {
   drill: {
     /** Pause before the book opponent replies. */
     replyDelayMs: 450,
+    /** Pause on a finished line before the next one starts. */
+    nextLineDelayMs: 2000,
   },
 
   proof: {

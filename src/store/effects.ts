@@ -1,11 +1,14 @@
 import { config } from '../config'
 import { bestLine, type MoveLine } from '../domain/analysis'
+import { openingTree } from '../domain/book'
 import { chooseBotMove } from '../domain/bot'
 import { fenKey, legalUcis, playUci, sideToMove, type Color, type FenKey } from '../domain/chess'
+import { chooseBookReply, linesEndingAt } from '../domain/drill'
 import { evaluateProof } from '../domain/proof'
 import { isBadQuality, judgeMove } from '../domain/quality'
 import { negate } from '../domain/score'
 import type { AnalysisJob } from '../engine/EngineService'
+import { linesPlayed } from './drillSlice'
 import { analysisUpdated } from './engineSlice'
 import {
   currentFenOf,
@@ -19,7 +22,8 @@ import {
   type Verdict,
 } from './gameSlice'
 import type { AppListenerApi, AppStartListening, RootState } from './index'
-import { isAnalysisDone, selectAnalysis, selectAnalysisTarget } from './selectors'
+import { isAnalysisDone, selectAnalysis, selectAnalysisTarget, selectPlayedLines } from './selectors'
+import { startDrill } from './thunks'
 
 /** Resolves once `predicate` holds, checking the current state first. */
 async function waitFor(api: AppListenerApi, predicate: (state: RootState) => boolean): Promise<void> {
@@ -71,7 +75,10 @@ function resetEngineBetweenGames(startListening: AppStartListening) {
   })
 }
 
-/** Plays the opponent's move: a random book continuation in drills, the bot's choice otherwise. */
+/**
+ * Plays the opponent's move: in drills a book continuation, steering toward lines not yet
+ * played; otherwise the bot's choice.
+ */
 function replyAsOpponent(startListening: AppStartListening) {
   startListening({
     predicate: (_action, state, previous) =>
@@ -90,13 +97,10 @@ function replyAsOpponent(startListening: AppStartListening) {
         await api.delay(config.drill.replyDelayMs)
         const state = api.getState()
         if (!stillOurTurn(state) || !state.drill.opening) return
-        const options = api.extra.treeFor(state.drill.opening).get(fenKey(fen)) ?? []
-        if (options.length === 0) {
-          api.dispatch(lineCompleted())
-          return
-        }
-        const uci = options[Math.floor(api.extra.random() * options.length)]
-        api.dispatch(opponentMoved(playUci(fen, uci)!))
+        const tree = openingTree(api.extra.book, state.drill.opening)
+        const uci = chooseBookReply(api.extra.book, tree, fen, selectPlayedLines(state), api.extra.random)
+        if (uci) api.dispatch(opponentMoved(playUci(fen, uci)!))
+        else api.dispatch(lineCompleted())
         return
       }
 
@@ -227,7 +231,26 @@ function extendProofs(startListening: AppStartListening) {
   })
 }
 
-/** Ends a drill when the chosen opening's book has no move left in the current position. */
+/** Records the drill's lines as played when it reaches the positions where they end. */
+function recordPlayedLines(startListening: AppStartListening) {
+  startListening({
+    predicate: (_action, state, previous) =>
+      state.game.mode === 'drill' &&
+      state.game.phase !== 'judging' &&
+      state.game.phase !== 'review' &&
+      state.game.moves.length > previous.game.moves.length,
+    effect: (_action, api) => {
+      const { game, drill } = api.getState()
+      if (!drill.opening) return
+      const ended = linesEndingAt(openingTree(api.extra.book, drill.opening), currentFenOf(game))
+      const played = selectPlayedLines(api.getState())
+      const fresh = ended.filter((id) => !played.has(id))
+      if (fresh.length) api.dispatch(linesPlayed(fresh))
+    },
+  })
+}
+
+/** Ends a drill line when the chosen opening's book has no move left in the current position. */
 function completeDrillLines(startListening: AppStartListening) {
   startListening({
     predicate: (_action, state, previous) =>
@@ -239,8 +262,25 @@ function completeDrillLines(startListening: AppStartListening) {
     effect: (_action, api) => {
       const { game, drill } = api.getState()
       if (!drill.opening) return
-      const moves = api.extra.treeFor(drill.opening).get(fenKey(currentFenOf(game)))
+      const moves = openingTree(api.extra.book, drill.opening).moves.get(fenKey(currentFenOf(game)))
       if (!moves?.length) api.dispatch(lineCompleted())
+    },
+  })
+}
+
+/** After a pause on a finished line, starts the next one, until every line has been played. */
+function continueDrills(startListening: AppStartListening) {
+  startListening({
+    actionCreator: lineCompleted,
+    effect: async (_action, api) => {
+      api.cancelActiveListeners()
+      const { id, mode } = api.getState().game
+      if (mode !== 'drill') return
+      await api.delay(config.drill.nextLineDelayMs)
+      const { game, drill } = api.getState()
+      if (game.id !== id || game.finish?.kind !== 'lineComplete' || !drill.opening) return
+      const total = openingTree(api.extra.book, drill.opening).lineIds.length
+      if (drill.played.length < total) api.dispatch(startDrill())
     },
   })
 }
@@ -252,5 +292,7 @@ export function registerEffects(startListening: AppStartListening) {
   judgePlayerMoves(startListening)
   playProofs(startListening)
   extendProofs(startListening)
+  recordPlayedLines(startListening)
   completeDrillLines(startListening)
+  continueDrills(startListening)
 }

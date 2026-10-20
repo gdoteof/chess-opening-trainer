@@ -23,6 +23,9 @@ export const selectExplorerFens = createSelector([(state: RootState) => state.dr
   ...moves.map((m) => m.fen),
 ])
 
+/** Lines of the chosen opening already played in this drill. */
+export const selectPlayedLines = createSelector([(state: RootState) => state.drill.played], (ids) => new Set(ids))
+
 export const selectAnalysis = (state: RootState, fen: string): PositionAnalysis | undefined =>
   state.engine.analyses[fenKey(fen)]
 

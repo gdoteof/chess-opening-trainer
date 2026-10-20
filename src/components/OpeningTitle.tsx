@@ -1,6 +1,7 @@
 import { openingAt } from '../domain/book'
 import { useAppSelector, useBook } from '../store/hooks'
 import { selectExplorerFens, selectExploring, selectGameFens } from '../store/selectors'
+import { Eco } from './Eco'
 
 /** The opening name for the game position, set large: it changes as the game moves through the book. */
 export function OpeningTitle() {
@@ -28,7 +29,9 @@ export function OpeningTitle() {
         {variation && <span className="opening-variation">{variation}</span>}
       </h2>
       <p className="opening-meta">
-        <span className="eco">{opening.eco}</span>
+        <span className="eco">
+          <Eco code={opening.eco} />
+        </span>
         {outOfBook && <span>Out of book; this was the last named position.</span>}
       </p>
     </div>

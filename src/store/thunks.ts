@@ -1,5 +1,6 @@
+import { openingTree } from '../domain/book'
 import { fenKey, playUci, type Uci } from '../domain/chess'
-import { explorerMoved, openingChosen } from './drillSlice'
+import { explorerMoved, openingChosen, progressReset } from './drillSlice'
 import { currentFenOf, gameCleared, gameStarted, playerMoved } from './gameSlice'
 import type { AppThunk } from './index'
 import { selectExplorerFen } from './selectors'
@@ -16,7 +17,7 @@ export const attemptPlayerMove =
     if (!move) return false
 
     if (game.mode === 'drill' && drill.opening) {
-      const book = services.treeFor(drill.opening).get(fenKey(fen)) ?? []
+      const book = openingTree(services.book, drill.opening).moves.get(fenKey(fen)) ?? []
       if (book.includes(move.uci)) {
         dispatch(playerMoved({ move, judge: false, bookMoves: null }))
       } else {
@@ -52,6 +53,12 @@ export const startDrill = (): AppThunk => (dispatch, getState) => {
   const { drill } = getState()
   if (drill.opening) dispatch(gameStarted({ mode: 'drill', player: drill.side }))
   else dispatch(gameCleared('drill'))
+}
+
+/** Forgets which lines of the opening have been played and starts again. */
+export const restartProgress = (): AppThunk => (dispatch) => {
+  dispatch(progressReset())
+  dispatch(startDrill())
 }
 
 export const startBotGame = (): AppThunk => (dispatch, getState) => {

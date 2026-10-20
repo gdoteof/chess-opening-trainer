@@ -3,8 +3,10 @@
 A browser chess trainer for beginners, with two modes:
 
 - **Drill an opening.** Pick a named opening (and its sub-variations) and a side. The app plays the
-  other side from the book; you have to find the book moves. While choosing, you can play book
-  moves on the board to narrow the list to openings that reach that position, by any move order.
+  other side from the book; you have to find the book moves. A drill works through every line of
+  the opening: after each line it starts the next, and the book side steers toward lines you
+  haven't played yet. While choosing, you can play book moves on the board to narrow the list to
+  openings that reach that position, by any move order.
 - **Play the bot.** Play Stockfish at a rating from about 400 to 2800, or at full strength.
 
 In both modes, when you pick up a piece its legal destinations are colored by how good each move
@@ -36,6 +38,7 @@ src/
   config.ts      every tunable number: quality thresholds, search depth/time, bot, proof
   domain/        pure chess logic, no I/O, unit tested
     book.ts        opening index: book moves and names per position, opening trees
+    drill.ts       which lines a drill has covered, and the book side's steering
     quality.ts     centipawn loss → green / yellow / orange / red
     bot.ts         rating → sampling temperature, move choice
     proof.ts       when a refutation has made its point, and how to label it
