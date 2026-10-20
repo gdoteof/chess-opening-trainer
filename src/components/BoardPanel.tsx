@@ -27,6 +27,10 @@ export function BoardPanel() {
           </li>
         </ul>
       )}
+      <p className="board-tip">
+        Right-click and drag to draw an arrow, or right-click a square to mark it. Hold Shift, Ctrl or Alt for
+        another color; a left click clears them.
+      </p>
     </section>
   )
 }

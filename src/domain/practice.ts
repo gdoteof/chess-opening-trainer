@@ -3,8 +3,8 @@ import type { Random } from './bot'
 import { fenKey, playUci, type FenKey, type Uci } from './chess'
 
 /**
- * A drill works through every line of an opening's tree. A line counts as played once the
- * drill reaches the position where it ends, whatever the move order.
+ * Practising an opening works through every line of its tree. A line is finished once the
+ * game reaches the position where it ends, whatever the move order.
  */
 
 /** Lines of the tree that end at this position. */

@@ -2,14 +2,19 @@
 
 A browser chess trainer for beginners, with two modes:
 
-- **Drill an opening.** Pick a named opening (and its sub-variations) and a side. The app plays the
-  other side from the book; you have to find the book moves. A drill works through every line of
-  the opening: after each line it starts the next, and the book side steers toward lines you
-  haven't played yet. While choosing, you can play book moves on the board to narrow the list to
-  openings that reach that position, by any move order.
+- **Openings.** Pick a named opening (and its sub-variations). The app plays the other side from
+  the book and works through every line: after each line it starts the next, steering toward lines
+  you haven't finished yet. There are two ways to practise, each with its own progress:
+  - **Learn**: arrows show the book moves, and the panel names the opening each one leads to.
+  - **Drill**: find the book moves yourself. A line counts only if you play it without a wrong move.
+
+  Each opening is marked as White's or Black's, and choosing it gives you that side (you can
+  switch to practise against it). While choosing, you can filter the list by side, and play book
+  moves on the board to narrow it to openings that reach that position, by any move order.
 - **Play the bot.** Play Stockfish at a rating from about 400 to 2800, or at full strength.
 
-In both modes, when you pick up a piece its legal destinations are colored by how good each move
+Right-click and drag on the board to draw arrows while you think, or right-click a square to mark
+it (hold Shift, Ctrl or Alt for other colors). In both modes, when you pick up a piece its legal destinations are colored by how good each move
 is (green, yellow, orange, red). If you play a mistake or a blunder, the game pauses and the
 board plays out the engine's refutation so you can see *why* it was bad. Then you can take it back
 and try again.
@@ -38,15 +43,15 @@ src/
   config.ts      every tunable number: quality thresholds, search depth/time, bot, proof
   domain/        pure chess logic, no I/O, unit tested
     book.ts        opening index: book moves and names per position, opening trees
-    drill.ts       which lines a drill has covered, and the book side's steering
+    practice.ts    which lines a practice has finished, and the book side's steering
     quality.ts     centipawn loss → green / yellow / orange / red
     bot.ts         rating → sampling temperature, move choice
     proof.ts       when a refutation has made its point, and how to label it
   engine/        Stockfish: UCI parsing, Web Worker transport, queued cancellable service
   store/         Redux Toolkit
-    *Slice.ts      settings, engine (status + analysis cache), drill, bot, game
+    *Slice.ts      settings, engine (status + analysis cache), openings, bot, game
     effects.ts     listener middleware: engine scheduling, opponent replies, judging, proofs
-    thunks.ts      user intents (play a move, start a drill or game, switch mode)
+    thunks.ts      user intents (play a move, start a line or game, switch mode)
   components/    React UI
   data/          bundled lichess-org/chess-openings TSVs
 ```
@@ -82,6 +87,10 @@ loads instantly. Set `engine.flavor` to `'full'` in `src/config.ts` for the full
 - **Rated bots** move once the search reaches depth 14 instead of waiting out the full 3-second
   budget; the "Max" bot always waits for the full search.
 - **Keep my move.** In bot mode, after a proof you can keep the move and play on, as well as take it back.
+- **White's or Black's.** The dataset doesn't say which side an opening belongs to. The app gives
+  it to whoever played the last move of its shortest line, unless the name ends in "Defense"
+  (Black) or "Attack" (White), because some lines run a move past the one that names them. It is
+  right for the well-known openings; a few, like the Four Knights Game, are really for both.
 
 ## Data and licenses
 
@@ -97,7 +106,7 @@ loads instantly. Set `engine.flavor` to `'full'` in `src/config.ts` for the full
 Accounts with saved progress, and premium features behind a paywall. The architecture is ready for
 both:
 
-- Every slice is plain serializable data, so drill progress can be persisted or synced without
+- Every slice is plain serializable data, so practice progress can be persisted or synced without
   reshaping the state.
 - A backend client would be one more injected service next to the engine and the book (likely RTK
   Query), and entitlements would be another slice that components and effects check.

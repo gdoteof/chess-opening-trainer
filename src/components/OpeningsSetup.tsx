@@ -1,47 +1,83 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { openingsThrough, openingTree, rankForGame } from '../domain/book'
 import { fenKey, formatLine, START_FEN, type Color } from '../domain/chess'
-import { browsingCancelled, browsingStarted, drillSideChosen, explorerReset, explorerUndone } from '../store/drillSlice'
+import {
+  browsingCancelled,
+  browsingStarted,
+  explorerReset,
+  explorerUndone,
+  listSideChosen,
+  type Practice,
+} from '../store/openingsSlice'
 import { useAppDispatch, useAppSelector, useBook } from '../store/hooks'
 import { selectExplorerFens } from '../store/selectors'
-import { chooseOpening, restartProgress, startDrill } from '../store/thunks'
+import { chooseOpening, choosePractice, chooseSide, restartProgress, startLine } from '../store/thunks'
 import { Eco } from './Eco'
 import { SidePicker } from './SidePicker'
+import { SideTag } from './SideTag'
 
 const MAX_RESULTS = 80
 
-export function DrillSetup() {
+const PRACTICES: { practice: Practice; label: string; done: string }[] = [
+  { practice: 'learn', label: 'Learn', done: 'learned' },
+  { practice: 'drill', label: 'Drill', done: 'drilled' },
+]
+
+export function OpeningsSetup() {
   const dispatch = useAppDispatch()
   const book = useBook()
-  const { opening, side, browsing, played } = useAppSelector((state) => state.drill)
-
-  const chooseSide = (color: Color) => {
-    dispatch(drillSideChosen(color))
-    if (opening && !browsing) dispatch(startDrill())
-  }
+  const { opening, side, practice, browsing, progress } = useAppSelector((state) => state.openings)
 
   if (opening && !browsing) {
     const total = openingTree(book, opening).lineIds.length
+    const meantFor = book.openings.find((o) => o.name === opening)?.side
+    const finished = progress[practice].length
+    const { done } = PRACTICES.find((p) => p.practice === practice)!
     return (
       <section className="setup">
         <p className="setup-current">
-          Drilling <strong>{opening}</strong>
+          <strong>{opening}</strong> {meantFor && <SideTag side={meantFor} />}
+        </p>
+        <div className="field">
+          <span className="field-label" id="practice">
+            Practice
+          </span>
+          <div className="segmented segmented--small" role="group" aria-labelledby="practice">
+            {PRACTICES.map((p) => (
+              <button
+                key={p.practice}
+                type="button"
+                aria-pressed={practice === p.practice}
+                onClick={() => dispatch(choosePractice(p.practice))}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="setup-note">
+          {practice === 'learn'
+            ? 'Arrows show the book moves. Follow them to learn every line.'
+            : 'Find the book moves yourself. A line counts once you play it without a wrong move.'}
         </p>
         <div className="progress">
-          <progress max={total} value={played.length} aria-label="Lines played" />
+          <progress max={total} value={finished} aria-label={`Lines ${done}`} />
           <span>
-            {played.length} of {total} line{total === 1 ? '' : 's'} played
+            {finished} of {total} line{total === 1 ? '' : 's'} {done}
           </span>
         </div>
-        <SidePicker label="You play" value={side} onChange={chooseSide} />
+        <SidePicker label="You play" value={side} onChange={(color) => dispatch(chooseSide(color))} />
+        {meantFor && side !== meantFor && (
+          <p className="setup-note">You're playing against it, as {side === 'w' ? 'White' : 'Black'}.</p>
+        )}
         <div className="setup-actions">
-          <button type="button" className="button" onClick={() => dispatch(startDrill())}>
+          <button type="button" className="button" onClick={() => dispatch(startLine())}>
             Restart line
           </button>
           <button type="button" className="button" onClick={() => dispatch(browsingStarted())}>
             Change opening
           </button>
-          {played.length > 0 && (
+          {finished > 0 && (
             <button type="button" className="button" onClick={() => dispatch(restartProgress())}>
               Reset progress
             </button>
@@ -53,7 +89,7 @@ export function DrillSetup() {
 
   return (
     <section className="setup">
-      <SidePicker label="You play" value={side} onChange={chooseSide} />
+      <ListSidePicker />
       <ExplorerLine />
       <OpeningSearch
         onChoose={(name) => dispatch(chooseOpening(name))}
@@ -63,11 +99,41 @@ export function DrillSetup() {
   )
 }
 
+/** Narrows the list to the openings meant for one side. */
+function ListSidePicker() {
+  const dispatch = useAppDispatch()
+  const listSide = useAppSelector((state) => state.openings.listSide)
+  const choices: { side: Color | null; label: string }[] = [
+    { side: null, label: 'Both' },
+    { side: 'w', label: 'White' },
+    { side: 'b', label: 'Black' },
+  ]
+  return (
+    <div className="field">
+      <span className="field-label" id="list-side">
+        Openings for
+      </span>
+      <div className="segmented segmented--small" role="group" aria-labelledby="list-side">
+        {choices.map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            aria-pressed={listSide === c.side}
+            onClick={() => dispatch(listSideChosen(c.side))}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** The moves played on the explorer board, which narrow the opening list. */
 function ExplorerLine() {
   const dispatch = useAppDispatch()
   const book = useBook()
-  const moves = useAppSelector((state) => state.drill.explorer)
+  const moves = useAppSelector((state) => state.openings.explorer)
   if (moves.length === 0) {
     return <p className="explorer-hint">Play moves on the board to narrow the list to openings that reach that position. Only book moves can be played.</p>
   }
@@ -93,6 +159,7 @@ function ExplorerLine() {
 function OpeningSearch({ onChoose, onCancel }: { onChoose(name: string): void; onCancel?: () => void }) {
   const book = useBook()
   const explorerFens = useAppSelector(selectExplorerFens)
+  const listSide = useAppSelector((state) => state.openings.listSide)
   const [query, setQuery] = useState('')
   const deferred = useDeferredValue(query)
   const explored = explorerFens.length > 1
@@ -105,6 +172,7 @@ function OpeningSearch({ onChoose, onCancel }: { onChoose(name: string): void; o
   const matches = useMemo(() => {
     const terms = deferred.toLowerCase().split(/\s+/).filter(Boolean)
     let found = reachable.filter((o) => {
+      if (listSide && o.side !== listSide) return false
       const haystack = `${o.name} ${o.eco}`.toLowerCase()
       return terms.every((term) => haystack.includes(term))
     })
@@ -119,7 +187,7 @@ function OpeningSearch({ onChoose, onCancel }: { onChoose(name: string): void; o
       return lower === phrase ? 0 : lower.startsWith(phrase) ? 1 : lower.includes(phrase) ? 2 : 3
     }
     return found.sort((a, b) => closeness(a.name) - closeness(b.name))
-  }, [book, deferred, explored, explorerFens, reachable])
+  }, [book, deferred, explored, explorerFens, listSide, reachable])
 
   return (
     <div className="search">
@@ -144,8 +212,11 @@ function OpeningSearch({ onChoose, onCancel }: { onChoose(name: string): void; o
             <button type="button" className="search-result" onClick={() => onChoose(o.name)}>
               <span className="search-result-name">{o.name}</span>
               <span className="search-result-meta">
-                <Eco code={o.eco} />
-                {o.lineCount > 1 && `, ${o.lineCount} lines`}
+                <SideTag side={o.side} />
+                <span>
+                  <Eco code={o.eco} />
+                  {o.lineCount > 1 && `, ${o.lineCount} lines`}
+                </span>
               </span>
             </button>
           </li>

@@ -3,7 +3,7 @@ import { evalBarToggled, hintsToggled, type Mode } from '../store/settingsSlice'
 import { switchMode } from '../store/thunks'
 
 const MODES: { mode: Mode; label: string }[] = [
-  { mode: 'drill', label: 'Drill an opening' },
+  { mode: 'openings', label: 'Openings' },
   { mode: 'bot', label: 'Play the bot' },
 ]
 

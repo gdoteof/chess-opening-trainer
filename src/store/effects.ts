@@ -3,12 +3,12 @@ import { bestLine, type MoveLine } from '../domain/analysis'
 import { openingTree } from '../domain/book'
 import { chooseBotMove } from '../domain/bot'
 import { fenKey, legalUcis, playUci, sideToMove, type Color, type FenKey } from '../domain/chess'
-import { chooseBookReply, linesEndingAt } from '../domain/drill'
+import { chooseBookReply, linesEndingAt } from '../domain/practice'
 import { evaluateProof } from '../domain/proof'
 import { isBadQuality, judgeMove } from '../domain/quality'
 import { negate } from '../domain/score'
 import type { AnalysisJob } from '../engine/EngineService'
-import { linesPlayed } from './drillSlice'
+import { linesFinished } from './openingsSlice'
 import { analysisUpdated } from './engineSlice'
 import {
   currentFenOf,
@@ -22,8 +22,8 @@ import {
   type Verdict,
 } from './gameSlice'
 import type { AppListenerApi, AppStartListening, RootState } from './index'
-import { isAnalysisDone, selectAnalysis, selectAnalysisTarget, selectPlayedLines } from './selectors'
-import { startDrill } from './thunks'
+import { isAnalysisDone, selectAnalysis, selectAnalysisTarget, selectFinishedLines } from './selectors'
+import { startLine } from './thunks'
 
 /** Resolves once `predicate` holds, checking the current state first. */
 async function waitFor(api: AppListenerApi, predicate: (state: RootState) => boolean): Promise<void> {
@@ -76,8 +76,8 @@ function resetEngineBetweenGames(startListening: AppStartListening) {
 }
 
 /**
- * Plays the opponent's move: in drills a book continuation, steering toward lines not yet
- * played; otherwise the bot's choice.
+ * Plays the opponent's move: with an opening, a book continuation that steers toward lines
+ * the current practice hasn't finished; otherwise the bot's choice.
  */
 function replyAsOpponent(startListening: AppStartListening) {
   startListening({
@@ -93,12 +93,12 @@ function replyAsOpponent(startListening: AppStartListening) {
       const stillOurTurn = (state: RootState) =>
         state.game.id === game.id && state.game.phase === 'opponent' && state.game.moves.length === game.moves.length
 
-      if (game.mode === 'drill') {
-        await api.delay(config.drill.replyDelayMs)
+      if (game.mode === 'openings') {
+        await api.delay(config.openings.replyDelayMs)
         const state = api.getState()
-        if (!stillOurTurn(state) || !state.drill.opening) return
-        const tree = openingTree(api.extra.book, state.drill.opening)
-        const uci = chooseBookReply(api.extra.book, tree, fen, selectPlayedLines(state), api.extra.random)
+        if (!stillOurTurn(state) || !state.openings.opening) return
+        const tree = openingTree(api.extra.book, state.openings.opening)
+        const uci = chooseBookReply(api.extra.book, tree, fen, selectFinishedLines(state), api.extra.random)
         if (uci) api.dispatch(opponentMoved(playUci(fen, uci)!))
         else api.dispatch(lineCompleted())
         return
@@ -231,56 +231,60 @@ function extendProofs(startListening: AppStartListening) {
   })
 }
 
-/** Records the drill's lines as played when it reaches the positions where they end. */
-function recordPlayedLines(startListening: AppStartListening) {
+/**
+ * Marks lines finished when the game reaches the positions where they end. A drill only
+ * counts lines played without leaving the book.
+ */
+function recordFinishedLines(startListening: AppStartListening) {
   startListening({
     predicate: (_action, state, previous) =>
-      state.game.mode === 'drill' &&
+      state.game.mode === 'openings' &&
       state.game.phase !== 'judging' &&
       state.game.phase !== 'review' &&
       state.game.moves.length > previous.game.moves.length,
     effect: (_action, api) => {
-      const { game, drill } = api.getState()
-      if (!drill.opening) return
-      const ended = linesEndingAt(openingTree(api.extra.book, drill.opening), currentFenOf(game))
-      const played = selectPlayedLines(api.getState())
-      const fresh = ended.filter((id) => !played.has(id))
-      if (fresh.length) api.dispatch(linesPlayed(fresh))
+      const { game, openings } = api.getState()
+      if (!openings.opening) return
+      if (openings.practice === 'drill' && openings.thisLine.slips > 0) return
+      const ended = linesEndingAt(openingTree(api.extra.book, openings.opening), currentFenOf(game))
+      const finished = selectFinishedLines(api.getState())
+      const fresh = ended.filter((id) => !finished.has(id))
+      if (fresh.length) api.dispatch(linesFinished(fresh))
     },
   })
 }
 
-/** Ends a drill line when the chosen opening's book has no move left in the current position. */
-function completeDrillLines(startListening: AppStartListening) {
+/** Ends the line when the chosen opening's book has no move left in the current position. */
+function completeLines(startListening: AppStartListening) {
   startListening({
     predicate: (_action, state, previous) =>
-      state.game.mode === 'drill' &&
+      state.game.mode === 'openings' &&
       (state.game.phase === 'player' || state.game.phase === 'opponent') &&
       (state.game.moves.length !== previous.game.moves.length ||
         state.game.phase !== previous.game.phase ||
         state.game.id !== previous.game.id),
     effect: (_action, api) => {
-      const { game, drill } = api.getState()
-      if (!drill.opening) return
-      const moves = openingTree(api.extra.book, drill.opening).moves.get(fenKey(currentFenOf(game)))
+      const { game, openings } = api.getState()
+      if (!openings.opening) return
+      const moves = openingTree(api.extra.book, openings.opening).moves.get(fenKey(currentFenOf(game)))
       if (!moves?.length) api.dispatch(lineCompleted())
     },
   })
 }
 
-/** After a pause on a finished line, starts the next one, until every line has been played. */
-function continueDrills(startListening: AppStartListening) {
+/** After a pause on a finished line, starts the next one, until every line is finished. */
+function continueLines(startListening: AppStartListening) {
   startListening({
     actionCreator: lineCompleted,
     effect: async (_action, api) => {
       api.cancelActiveListeners()
       const { id, mode } = api.getState().game
-      if (mode !== 'drill') return
-      await api.delay(config.drill.nextLineDelayMs)
-      const { game, drill } = api.getState()
-      if (game.id !== id || game.finish?.kind !== 'lineComplete' || !drill.opening) return
-      const total = openingTree(api.extra.book, drill.opening).lineIds.length
-      if (drill.played.length < total) api.dispatch(startDrill())
+      if (mode !== 'openings') return
+      await api.delay(config.openings.nextLineDelayMs)
+      const { game, openings } = api.getState()
+      if (game.id !== id || game.finish?.kind !== 'lineComplete' || !openings.opening) return
+      const total = openingTree(api.extra.book, openings.opening).lineIds.length
+      if (openings.progress[openings.practice].length < total) api.dispatch(startLine())
     },
   })
 }
@@ -292,7 +296,7 @@ export function registerEffects(startListening: AppStartListening) {
   judgePlayerMoves(startListening)
   playProofs(startListening)
   extendProofs(startListening)
-  recordPlayedLines(startListening)
-  completeDrillLines(startListening)
-  continueDrills(startListening)
+  recordFinishedLines(startListening)
+  completeLines(startListening)
+  continueLines(startListening)
 }

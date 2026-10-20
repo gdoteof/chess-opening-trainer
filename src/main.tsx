@@ -11,7 +11,7 @@ import { engineFailed, engineReady } from './store/engineSlice'
 import { BookContext } from './store/hooks'
 import { createAppStore } from './store/index'
 import { createServices } from './store/services'
-import { startDrill } from './store/thunks'
+import { startLine } from './store/thunks'
 
 const root = createRoot(document.getElementById('root')!)
 root.render(<p className="splash">Loading openings…</p>)
@@ -23,7 +23,7 @@ void import('./data/openings').then(({ loadOpeningLines }) => {
   const book = buildBook(loadOpeningLines())
   const services = createServices(book)
   const store = createAppStore(services)
-  store.dispatch(startDrill())
+  store.dispatch(startLine())
 
   engine
     .then(({ engine, build }) => {

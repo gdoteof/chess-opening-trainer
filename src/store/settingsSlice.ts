@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit'
 
-export type Mode = 'drill' | 'bot'
+export type Mode = 'openings' | 'bot'
 
 export interface SettingsState {
   mode: Mode
@@ -8,7 +8,7 @@ export interface SettingsState {
   evalBar: boolean
 }
 
-const initialState: SettingsState = { mode: 'drill', hints: true, evalBar: false }
+const initialState: SettingsState = { mode: 'openings', hints: true, evalBar: false }
 
 export const settingsSlice = createSlice({
   name: 'settings',

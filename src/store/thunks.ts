@@ -1,6 +1,6 @@
 import { openingTree } from '../domain/book'
-import { fenKey, playUci, type Uci } from '../domain/chess'
-import { explorerMoved, openingChosen, progressReset } from './drillSlice'
+import { fenKey, playUci, type Color, type Uci } from '../domain/chess'
+import { explorerMoved, openingChosen, practiceChosen, progressReset, sideChosen, type Practice } from './openingsSlice'
 import { currentFenOf, gameCleared, gameStarted, playerMoved } from './gameSlice'
 import type { AppThunk } from './index'
 import { selectExplorerFen } from './selectors'
@@ -10,14 +10,14 @@ import { modeChanged, type Mode } from './settingsSlice'
 export const attemptPlayerMove =
   (uci: Uci): AppThunk<boolean> =>
   (dispatch, getState, services) => {
-    const { game, drill } = getState()
+    const { game, openings } = getState()
     if (game.phase !== 'player') return false
     const fen = currentFenOf(game)
     const move = playUci(fen, uci)
     if (!move) return false
 
-    if (game.mode === 'drill' && drill.opening) {
-      const book = openingTree(services.book, drill.opening).moves.get(fenKey(fen)) ?? []
+    if (game.mode === 'openings' && openings.opening) {
+      const book = openingTree(services.book, openings.opening).moves.get(fenKey(fen)) ?? []
       if (book.includes(move.uci)) {
         dispatch(playerMoved({ move, judge: false, bookMoves: null }))
       } else {
@@ -42,23 +42,41 @@ export const attemptExplorerMove =
     return true
   }
 
+/** Chooses an opening to practise, taking the side it is meant for. */
 export const chooseOpening =
   (name: string): AppThunk =>
-  (dispatch) => {
-    dispatch(openingChosen(name))
-    dispatch(startDrill())
+  (dispatch, _getState, services) => {
+    const side = services.book.openings.find((o) => o.name === name)?.side ?? 'w'
+    dispatch(openingChosen({ name, side }))
+    dispatch(startLine())
   }
 
-export const startDrill = (): AppThunk => (dispatch, getState) => {
-  const { drill } = getState()
-  if (drill.opening) dispatch(gameStarted({ mode: 'drill', player: drill.side }))
-  else dispatch(gameCleared('drill'))
+export const choosePractice =
+  (practice: Practice): AppThunk =>
+  (dispatch, getState) => {
+    if (getState().openings.practice === practice) return
+    dispatch(practiceChosen(practice))
+    dispatch(startLine())
+  }
+
+export const chooseSide =
+  (side: Color): AppThunk =>
+  (dispatch, getState) => {
+    dispatch(sideChosen(side))
+    const { opening, browsing } = getState().openings
+    if (opening && !browsing) dispatch(startLine())
+  }
+
+export const startLine = (): AppThunk => (dispatch, getState) => {
+  const { openings } = getState()
+  if (openings.opening) dispatch(gameStarted({ mode: 'openings', player: openings.side }))
+  else dispatch(gameCleared('openings'))
 }
 
-/** Forgets which lines of the opening have been played and starts again. */
+/** Forgets which lines of the opening the current practice has finished, and starts again. */
 export const restartProgress = (): AppThunk => (dispatch) => {
   dispatch(progressReset())
-  dispatch(startDrill())
+  dispatch(startLine())
 }
 
 export const startBotGame = (): AppThunk => (dispatch, getState) => {
@@ -70,6 +88,6 @@ export const switchMode =
   (dispatch, getState) => {
     if (getState().settings.mode === mode) return
     dispatch(modeChanged(mode))
-    if (mode === 'drill') dispatch(startDrill())
+    if (mode === 'openings') dispatch(startLine())
     else dispatch(gameCleared('bot'))
   }

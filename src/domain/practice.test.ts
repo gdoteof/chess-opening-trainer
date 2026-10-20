@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildBook, openingTree, parseOpeningsTsv } from './book'
 import { playUci, START_FEN } from './chess'
-import { bookMoveOptions, chooseBookReply, linesEndingAt } from './drill'
+import { bookMoveOptions, chooseBookReply, linesEndingAt } from './practice'
 
 const book = buildBook(
   parseOpeningsTsv(

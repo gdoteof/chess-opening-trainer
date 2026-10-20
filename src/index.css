@@ -315,6 +315,22 @@ input {
   color: var(--muted);
 }
 
+.board-tip {
+  /* Wrap to the board's width instead of widening its column. */
+  width: 0;
+  min-width: 100%;
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+/* Right-click arrows need a mouse. */
+@media (hover: none) {
+  .board-tip {
+    display: none;
+  }
+}
+
 .legend li {
   display: inline-flex;
   align-items: center;
@@ -632,7 +648,86 @@ input {
 }
 
 .setup-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin: 0;
+}
+
+.setup-note {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+/* A small disc in the side's color, then its name. */
+.side-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.side-tag::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+}
+
+/* The colors of the pieces, which don't change with the theme. */
+.side-tag--w::before {
+  background: #fff;
+}
+
+.side-tag--b::before {
+  background: #16202c;
+}
+
+.book-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9375rem;
+}
+
+.book-move {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.book-move .san {
+  min-width: 3.5em;
+}
+
+.book-move--new {
+  color: var(--ink);
+}
+
+.book-move--new .san {
+  color: var(--q-green);
+}
+
+.book-move-name {
+  flex: 1;
+}
+
+.book-move-meta {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .progress {
@@ -762,6 +857,10 @@ input {
 }
 
 .search-result-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   flex: none;
   font-size: 0.8125rem;
   color: var(--muted);

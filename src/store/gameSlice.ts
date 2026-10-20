@@ -11,7 +11,7 @@ import type { Mode } from './settingsSlice'
  * - player / opponent: whose move it is
  * - judging: the player's move is waiting for enough analysis to be classified
  * - review: play is paused on the player's move (wrong book move and/or blunder proof)
- * - finished: game over, or the drill reached the end of the book
+ * - finished: game over, or an opening line reached the end of the book
  */
 export type Phase = 'setup' | 'player' | 'opponent' | 'judging' | 'review' | 'finished'
 
@@ -70,7 +70,7 @@ export interface GameState {
 
 const initialState: GameState = {
   id: 0,
-  mode: 'drill',
+  mode: 'openings',
   player: 'w',
   startFen: START_FEN,
   moves: [],

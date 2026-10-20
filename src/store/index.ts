@@ -9,7 +9,7 @@ import {
   type UnknownAction,
 } from '@reduxjs/toolkit'
 import { botSlice } from './botSlice'
-import { drillSlice } from './drillSlice'
+import { openingsSlice } from './openingsSlice'
 import { registerEffects } from './effects'
 import { engineSlice } from './engineSlice'
 import { gameSlice } from './gameSlice'
@@ -19,7 +19,7 @@ import { settingsSlice } from './settingsSlice'
 export const rootReducer = combineReducers({
   settings: settingsSlice.reducer,
   engine: engineSlice.reducer,
-  drill: drillSlice.reducer,
+  openings: openingsSlice.reducer,
   bot: botSlice.reducer,
   game: gameSlice.reducer,
 })

@@ -46,8 +46,35 @@ describe('buildBook', () => {
 
   it('lists distinct names with the size of their tree', () => {
     const italian = book.openings.find((o) => o.name === 'Italian Game')
-    expect(italian).toEqual({ name: 'Italian Game', eco: 'C50', lineCount: 3 })
+    expect(italian).toEqual({ name: 'Italian Game', eco: 'C50', lineCount: 3, side: 'w' })
     expect(book.openings.map((o) => o.name)).toEqual([...book.openings.map((o) => o.name)].sort())
+  })
+
+  it('gives each opening to the side whose move names it', () => {
+    const sideOf = (name: string) => book.openings.find((o) => o.name === name)?.side
+    expect(sideOf('Italian Game')).toBe('w')
+    expect(sideOf('Italian Game: Two Knights Defense')).toBe('b')
+    expect(sideOf('Sicilian Defense')).toBe('b')
+    expect(sideOf('Bird Opening')).toBe('w')
+  })
+
+  it('lets a Defense or an Attack in the name decide', () => {
+    const named = buildBook(
+      parseOpeningsTsv(
+        [
+          'eco\tname\tpgn',
+          "E61\tKing's Indian Defense\t1. d4 Nf6 2. c4 g6 3. Nc3",
+          'B75\tSicilian Defense: Dragon Variation, Yugoslav Attack\t1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Be3 Bg7 7. f3 O-O',
+          'C89\tRuy Lopez: Marshall Attack\t1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 O-O 8. c3 d5',
+          'A00\tHungarian Opening: Reversed Norwegian Defense\t1. g3 e5 2. Nf3 e4 3. Nh4',
+        ].join('\n'),
+      ),
+    )
+    const sideOf = (name: string) => named.openings.find((o) => o.name === name)?.side
+    expect(sideOf("King's Indian Defense")).toBe('b')
+    expect(sideOf('Sicilian Defense: Dragon Variation, Yugoslav Attack')).toBe('w')
+    expect(sideOf('Ruy Lopez: Marshall Attack')).toBe('b')
+    expect(sideOf('Hungarian Opening: Reversed Norwegian Defense')).toBe('w')
   })
 })
 
@@ -122,7 +149,7 @@ describe('namesAlong', () => {
 })
 
 describe('rankForGame', () => {
-  it('puts names along the game first, then the current family', () => {
+  it('puts names along the game first, then the biggest trees', () => {
     const fens = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4')
     const ranked = rankForGame(book, fens, openingsThrough(book, fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6')))
     expect(ranked.map((o) => o.name)).toEqual([

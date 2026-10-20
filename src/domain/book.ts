@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js'
-import { fenKey, START_FEN, uciOf, type FenKey, type Uci } from './chess'
+import { fenKey, START_FEN, uciOf, type Color, type FenKey, type Uci } from './chess'
 
 /** One row of the lichess chess-openings dataset. */
 export interface OpeningLine {
@@ -49,6 +49,8 @@ export interface OpeningEntry {
   eco: string
   /** Number of dataset lines in this opening's tree (itself plus sub-variations). */
   lineCount: number
+  /** The side the opening is meant for; see `sideOf`. */
+  side: Color
 }
 
 export interface Book {
@@ -127,9 +129,18 @@ export function buildBook(source: OpeningLine[]): Book {
 
   lines.sort((a, b) => compareNames(a.name, b.name))
   const openings: OpeningEntry[] = []
+  const shortest: number[] = []
   for (const line of lines) {
-    if (openings[openings.length - 1]?.name === line.name) continue
-    openings.push({ name: line.name, eco: line.eco, lineCount: 0 })
+    const last = openings.length - 1
+    if (openings[last]?.name === line.name) {
+      if (line.moves.length < shortest[last]) {
+        shortest[last] = line.moves.length
+        openings[last].side = sideOf(line)
+      }
+      continue
+    }
+    openings.push({ name: line.name, eco: line.eco, lineCount: 0, side: sideOf(line) })
+    shortest.push(line.moves.length)
   }
   for (const opening of openings) {
     const [start, end] = prefixRange(lines, opening.name)
@@ -139,6 +150,23 @@ export function buildBook(source: OpeningLine[]): Book {
 }
 
 const compareNames = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/**
+ * The side an opening is meant for, from its shortest line. The name decides when its last
+ * part is a Defense (Black) or an Attack (White), because the dataset often carries a line a
+ * move past the one that names it (the King's Indian Defense ends on 3.Nc3). Otherwise it
+ * is whoever played the last move: 1...c5 for the Sicilian, 3.Bc4 for the Italian.
+ */
+function sideOf(line: BookLine): Color {
+  const variation = line.name.split(/[:,]\s*/).at(-1) ?? ''
+  // "Reversed" openings are a Black setup played by White, with a move in hand.
+  if (!variation.includes('Reversed')) {
+    if (/Defen[cs]e$/.test(variation)) return 'b'
+    // The Marshall is Black's attack against the Ruy Lopez.
+    if (/Attack$/.test(variation) && !variation.includes('Marshall')) return 'w'
+  }
+  return line.moves.length % 2 === 1 ? 'w' : 'b'
+}
 
 /** Index range of the lines whose name starts with `prefix`; `lines` is sorted by name. */
 function prefixRange(lines: BookLine[], prefix: string): [number, number] {
@@ -157,7 +185,7 @@ function prefixRange(lines: BookLine[], prefix: string): [number, number] {
   return [start, Math.max(start, end)]
 }
 
-/** The chosen opening's lines (its own plus every sub-variation), indexed for drilling. */
+/** The chosen opening's lines (its own plus every sub-variation), indexed for practice. */
 export interface OpeningTree {
   /** Book moves per position. */
   moves: Map<FenKey, Uci[]>
@@ -239,18 +267,16 @@ export function namesAlong(book: Book, fens: readonly string[]): string[] {
 
 /**
  * Orders openings for a position reached by the game `fens`: names along the game first
- * (deepest first), then the rest of the current position's family, then everything else.
- * The sort is stable, so each group keeps its incoming (alphabetical) order.
+ * (deepest first), then the rest by the size of their tree, so the main openings lead.
+ * The sort is stable, so ties keep their incoming (alphabetical) order.
  */
 export function rankForGame(book: Book, fens: readonly string[], openings: OpeningEntry[]): OpeningEntry[] {
   const path = namesAlong(book, fens)
-  const family = path[0]?.split(':')[0]
-  const rank = (name: string) => {
-    const index = path.indexOf(name)
-    if (index >= 0) return index
-    return family && name.startsWith(`${family}:`) ? path.length : path.length + 1
+  const depth = (o: OpeningEntry) => {
+    const index = path.indexOf(o.name)
+    return index < 0 ? path.length : index
   }
-  return [...openings].sort((a, b) => rank(a.name) - rank(b.name))
+  return [...openings].sort((a, b) => depth(a) - depth(b) || b.lineCount - a.lineCount)
 }
 
 export interface OpeningName {

@@ -13,18 +13,21 @@ export const selectCurrentFen = (state: RootState) => currentFenOf(state.game)
 /** Every position of the game so far, starting position first. */
 export const selectGameFens = createSelector([selectGame], (game) => [game.startFen, ...game.moves.map((m) => m.fen)])
 
-/** Choosing a drill opening, with the board as an explorer of book moves. */
-export const selectExploring = (state: RootState) => state.settings.mode === 'drill' && state.drill.browsing
+/** Choosing an opening, with the board as an explorer of book moves. */
+export const selectExploring = (state: RootState) => state.settings.mode === 'openings' && state.openings.browsing
 
-export const selectExplorerFen = (state: RootState) => state.drill.explorer.at(-1)?.fen ?? START_FEN
+export const selectExplorerFen = (state: RootState) => state.openings.explorer.at(-1)?.fen ?? START_FEN
 
-export const selectExplorerFens = createSelector([(state: RootState) => state.drill.explorer], (moves) => [
+export const selectExplorerFens = createSelector([(state: RootState) => state.openings.explorer], (moves) => [
   START_FEN,
   ...moves.map((m) => m.fen),
 ])
 
-/** Lines of the chosen opening already played in this drill. */
-export const selectPlayedLines = createSelector([(state: RootState) => state.drill.played], (ids) => new Set(ids))
+/** Lines of the chosen opening already finished in the current practice. */
+export const selectFinishedLines = createSelector(
+  [(state: RootState) => state.openings.progress, (state: RootState) => state.openings.practice],
+  (progress, practice) => new Set(progress[practice]),
+)
 
 export const selectAnalysis = (state: RootState, fen: string): PositionAnalysis | undefined =>
   state.engine.analyses[fenKey(fen)]
@@ -39,7 +42,7 @@ export const selectBoardFen = (state: RootState): string => {
 
 /** The last move shown on the board, for highlighting. */
 export const selectBoardLastMove = (state: RootState) => {
-  if (selectExploring(state)) return state.drill.explorer.at(-1)
+  if (selectExploring(state)) return state.openings.explorer.at(-1)
   const proof = state.game.review?.proof
   if (proof) return proof.cursor === 0 ? undefined : proof.moves[proof.cursor - 1]
   return state.game.moves.at(-1)

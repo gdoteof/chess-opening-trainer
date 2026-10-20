@@ -1,6 +1,6 @@
 import { BoardPanel } from './components/BoardPanel'
 import { BotSetup } from './components/BotSetup'
-import { DrillSetup } from './components/DrillSetup'
+import { OpeningsSetup } from './components/OpeningsSetup'
 import { EngineStatus } from './components/EngineStatus'
 import { Header } from './components/Header'
 import { MoveList } from './components/MoveList'
@@ -18,7 +18,7 @@ export default function App() {
         <aside className="side">
           <OpeningTitle />
           <StatusPanel />
-          {mode === 'drill' ? <DrillSetup /> : <BotSetup />}
+          {mode === 'openings' ? <OpeningsSetup /> : <BotSetup />}
           <MoveList />
         </aside>
       </main>

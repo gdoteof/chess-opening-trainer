@@ -5,13 +5,13 @@ import { fenKey, legalUcis, playUci, START_FEN } from '../domain/chess'
 import { cp } from '../domain/score'
 import type { AnalysisJob, AnalysisRequest, EngineService } from '../engine/EngineService'
 import { botSideChosen, strengthChosen } from './botSlice'
-import { browsingStarted, drillSideChosen, explorerUndone, openingChosen } from './drillSlice'
+import { browsingStarted, explorerUndone } from './openingsSlice'
 import { engineReady } from './engineSlice'
 import { tookBack } from './gameSlice'
 import { createAppStore } from './index'
 import { createServices } from './services'
 import { selectBoardFen, selectExploring } from './selectors'
-import { attemptExplorerMove, attemptPlayerMove, chooseOpening, startBotGame, startDrill, switchMode } from './thunks'
+import { attemptExplorerMove, attemptPlayerMove, chooseOpening, choosePractice, startBotGame, switchMode } from './thunks'
 
 /** Answers every search instantly: scripted lines where given, 0.00 for every other move. */
 class ScriptedEngine {
@@ -63,18 +63,25 @@ const after = (...ucis: string[]) => ucis.reduce((fen, uci) => playUci(fen, uci)
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
-describe('opening drill', () => {
+describe('practising an opening', () => {
+  const sans = (store: ReturnType<typeof setup>['store']) => store.getState().game.moves.map((m) => m.san)
+  const playMoves = async (store: ReturnType<typeof setup>['store'], ...moves: string[]) => {
+    for (const move of moves) {
+      store.dispatch(attemptPlayerMove(move))
+      await vi.advanceTimersByTimeAsync(1000)
+    }
+  }
+
   it('replies from the book and stops the player on a non-book move', async () => {
     const { store } = setup()
-    store.dispatch(openingChosen('Italian Game'))
-    store.dispatch(drillSideChosen('w'))
-    store.dispatch(startDrill())
+    store.dispatch(chooseOpening('Italian Game'))
+    expect(store.getState().openings.side).toBe('w')
     expect(store.getState().game.phase).toBe('player')
 
     expect(store.dispatch(attemptPlayerMove('e2e4'))).toBe(true)
     expect(store.getState().game.phase).toBe('opponent')
     await vi.advanceTimersByTimeAsync(1000)
-    expect(store.getState().game.moves.map((m) => m.san)).toEqual(['e4', 'e5'])
+    expect(sans(store)).toEqual(['e4', 'e5'])
     expect(store.getState().game.phase).toBe('player')
 
     store.dispatch(attemptPlayerMove('d2d4'))
@@ -90,65 +97,73 @@ describe('opening drill', () => {
     expect(store.getState().game.moves).toHaveLength(2)
   })
 
-  it('works through every line of the opening, one after another', async () => {
+  it('learns every line of the opening, one after another', async () => {
     const { store } = setup()
     store.dispatch(chooseOpening('Italian Game'))
-    const playLine = async () => {
-      for (const move of ['e2e4', 'g1f3', 'f1c4']) {
-        store.dispatch(attemptPlayerMove(move))
-        await vi.advanceTimersByTimeAsync(1000)
-      }
-      return store.getState().game.moves.map((m) => m.san)
-    }
+    expect(store.getState().openings.practice).toBe('learn')
 
-    expect(await playLine()).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5'])
+    await playMoves(store, 'e2e4', 'g1f3', 'f1c4')
+    expect(sans(store)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5'])
     expect(store.getState().game.finish).toEqual({ kind: 'lineComplete' })
-    expect(store.getState().drill.played).toHaveLength(2)
-    expect(store.getState().drill.playedThisLine).toBe(2)
+    expect(store.getState().openings.progress.learn).toHaveLength(2)
+    expect(store.getState().openings.thisLine.added).toBe(2)
 
     await vi.advanceTimersByTimeAsync(2500)
     expect(store.getState().game.phase).toBe('player')
-    expect(await playLine()).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Nf6'])
-    expect(store.getState().drill.played).toHaveLength(3)
-    expect(store.getState().drill.playedThisLine).toBe(1)
+    await playMoves(store, 'e2e4', 'g1f3', 'f1c4')
+    expect(sans(store)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Nf6'])
+    expect(store.getState().openings.progress.learn).toHaveLength(3)
+    expect(store.getState().openings.thisLine.added).toBe(1)
 
     await vi.advanceTimersByTimeAsync(5000)
     expect(store.getState().game.finish).toEqual({ kind: 'lineComplete' })
     expect(store.getState().game.moves).toHaveLength(6)
   })
 
+  it('only counts a drilled line played without leaving the book', async () => {
+    const { store } = setup()
+    store.dispatch(chooseOpening('Italian Game'))
+    store.dispatch(choosePractice('drill'))
+    await playMoves(store, 'e2e4', 'd2d4')
+    store.dispatch(tookBack())
+    await playMoves(store, 'g1f3', 'f1c4')
+    expect(store.getState().game.finish).toEqual({ kind: 'lineComplete' })
+    expect(store.getState().openings.thisLine.slips).toBe(1)
+    expect(store.getState().openings.progress.drill).toHaveLength(0)
+
+    await vi.advanceTimersByTimeAsync(2500)
+    await playMoves(store, 'e2e4', 'g1f3', 'f1c4')
+    expect(store.getState().openings.progress.drill).toHaveLength(2)
+    expect(store.getState().openings.progress.learn).toHaveLength(0)
+  })
+
   it('forgets progress when a different opening is chosen', async () => {
     const { store } = setup()
     store.dispatch(chooseOpening('Italian Game'))
-    store.dispatch(attemptPlayerMove('e2e4'))
-    await vi.advanceTimersByTimeAsync(1000)
-    store.dispatch(attemptPlayerMove('g1f3'))
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(store.getState().drill.played).toHaveLength(0)
-    store.dispatch(attemptPlayerMove('f1c4'))
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(store.getState().drill.played).toHaveLength(2)
+    await playMoves(store, 'e2e4', 'g1f3')
+    expect(store.getState().openings.progress.learn).toHaveLength(0)
+    await playMoves(store, 'f1c4')
+    expect(store.getState().openings.progress.learn).toHaveLength(2)
     store.dispatch(chooseOpening('Italian Game'))
-    expect(store.getState().drill.played).toHaveLength(2)
+    expect(store.getState().openings.progress.learn).toHaveLength(2)
     store.dispatch(chooseOpening("King's Knight Opening"))
-    expect(store.getState().drill.played).toHaveLength(0)
+    expect(store.getState().openings.progress.learn).toHaveLength(0)
   })
 
-  it('plays the first move for a player who chose black', async () => {
+  it('plays the first move when the opening is meant for black', async () => {
     const { store } = setup()
     store.dispatch(switchMode('bot'))
-    store.dispatch(switchMode('drill'))
-    store.dispatch(openingChosen('Italian Game'))
-    store.dispatch(drillSideChosen('b'))
-    store.dispatch(startDrill())
+    store.dispatch(switchMode('openings'))
+    store.dispatch(chooseOpening('Italian Game: Two Knights Defense'))
+    expect(store.getState().openings.side).toBe('b')
     await vi.advanceTimersByTimeAsync(1000)
-    expect(store.getState().game.moves.map((m) => m.san)).toEqual(['e4'])
+    expect(sans(store)).toEqual(['e4'])
     expect(store.getState().game.phase).toBe('player')
   })
 })
 
 describe('choosing an opening', () => {
-  it('explores book moves on the board before a drill starts', () => {
+  it('explores book moves on the board before practice starts', () => {
     const { store } = setup()
     expect(selectExploring(store.getState())).toBe(true)
     expect(store.dispatch(attemptExplorerMove('e2e4'))).toBe(true)
@@ -159,7 +174,7 @@ describe('choosing an opening', () => {
     expect(selectBoardFen(store.getState())).toBe(after('e2e4'))
   })
 
-  it('starts the chosen drill from the first move and returns to the explorer to change it', async () => {
+  it('starts the chosen opening from the first move and returns to the explorer to change it', async () => {
     const { store } = setup()
     store.dispatch(attemptExplorerMove('e2e4'))
     store.dispatch(chooseOpening('Italian Game'))
@@ -171,7 +186,7 @@ describe('choosing an opening', () => {
     store.dispatch(browsingStarted())
     expect(selectBoardFen(store.getState())).toBe(after('e2e4'))
     expect(store.dispatch(attemptPlayerMove('g1f3'))).toBe(true)
-    expect(store.getState().drill.explorer).toHaveLength(1)
+    expect(store.getState().openings.explorer).toHaveLength(1)
   })
 })
 

@@ -51,7 +51,7 @@ export const config = {
     ratedMinDepth: 14,
   },
 
-  drill: {
+  openings: {
     /** Pause before the book opponent replies. */
     replyDelayMs: 450,
     /** Pause on a finished line before the next one starts. */
