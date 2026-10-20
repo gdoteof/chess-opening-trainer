@@ -1,0 +1,192 @@
+import { Chess } from 'chess.js'
+import { fenKey, START_FEN, uciOf, type FenKey, type Uci } from './chess'
+
+/** One row of the lichess chess-openings dataset. */
+export interface OpeningLine {
+  eco: string
+  name: string
+  sans: string[]
+}
+
+export function parseOpeningsTsv(text: string): OpeningLine[] {
+  const rows = text.split('\n').map((row) => row.trim()).filter(Boolean)
+  const header = rows.shift()?.split('\t') ?? []
+  const col = (name: string) => {
+    const index = header.indexOf(name)
+    if (index < 0) throw new Error(`openings TSV has no "${name}" column`)
+    return index
+  }
+  const [eco, name, pgn] = [col('eco'), col('name'), col('pgn')]
+  return rows.map((row) => {
+    const cells = row.split('\t')
+    return {
+      eco: cells[eco],
+      name: cells[name],
+      sans: cells[pgn].split(/\s+/).filter((token) => !/^\d+\.+$/.test(token)),
+    }
+  })
+}
+
+export interface BookLine {
+  eco: string
+  name: string
+  moves: Uci[]
+  /** `fenKeys[i]` is the position before `moves[i]`; the last entry is where the line ends. */
+  fenKeys: FenKey[]
+}
+
+export interface BookPosition {
+  /** Book moves continuing any named line from here. */
+  moves: Uci[]
+  /** Name of the deepest line that ends at this position, if any does. */
+  name?: string
+  eco?: string
+  namePlies: number
+}
+
+export interface OpeningEntry {
+  name: string
+  eco: string
+  /** Number of dataset lines in this opening's tree (itself plus sub-variations). */
+  lineCount: number
+}
+
+export interface Book {
+  lines: BookLine[]
+  positions: Map<FenKey, BookPosition>
+  /** Distinct opening names, alphabetical. */
+  openings: OpeningEntry[]
+}
+
+interface TrieNode {
+  children: Map<string, TrieNode>
+  endingLines: number[]
+}
+
+const newNode = (): TrieNode => ({ children: new Map(), endingLines: [] })
+
+/**
+ * Indexes every dataset line by position. Lines share long prefixes, so they are merged into
+ * a trie of SAN moves first and the trie is walked once with a single board.
+ */
+export function buildBook(source: OpeningLine[]): Book {
+  const root = newNode()
+  source.forEach((line, index) => {
+    let node = root
+    for (const san of line.sans) {
+      let child = node.children.get(san)
+      if (!child) {
+        child = newNode()
+        node.children.set(san, child)
+      }
+      node = child
+    }
+    node.endingLines.push(index)
+  })
+
+  const positions = new Map<FenKey, BookPosition>()
+  const lines: BookLine[] = []
+  const chess = new Chess(START_FEN)
+  const pathMoves: Uci[] = []
+  const pathKeys: FenKey[] = []
+
+  const visit = (node: TrieNode) => {
+    const key = fenKey(chess.fen())
+    pathKeys.push(key)
+    let position = positions.get(key)
+    if (!position) {
+      position = { moves: [], namePlies: -1 }
+      positions.set(key, position)
+    }
+    for (const index of node.endingLines) {
+      const { eco, name } = source[index]
+      lines.push({ eco, name, moves: [...pathMoves], fenKeys: [...pathKeys] })
+      if (pathMoves.length > position.namePlies) {
+        position.name = name
+        position.eco = eco
+        position.namePlies = pathMoves.length
+      }
+    }
+    for (const [san, child] of node.children) {
+      let uci: Uci
+      try {
+        uci = uciOf(chess.move(san))
+      } catch {
+        console.warn(`openings: illegal move ${san} after ${pathMoves.join(' ')}; skipping`)
+        continue
+      }
+      if (!position.moves.includes(uci)) position.moves.push(uci)
+      pathMoves.push(uci)
+      visit(child)
+      pathMoves.pop()
+      chess.undo()
+    }
+    pathKeys.pop()
+  }
+  visit(root)
+
+  lines.sort((a, b) => compareNames(a.name, b.name))
+  const openings: OpeningEntry[] = []
+  for (const line of lines) {
+    if (openings[openings.length - 1]?.name === line.name) continue
+    openings.push({ name: line.name, eco: line.eco, lineCount: 0 })
+  }
+  for (const opening of openings) {
+    const [start, end] = prefixRange(lines, opening.name)
+    opening.lineCount = end - start
+  }
+  return { lines, positions, openings }
+}
+
+const compareNames = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Index range of the lines whose name starts with `prefix`; `lines` is sorted by name. */
+function prefixRange(lines: BookLine[], prefix: string): [number, number] {
+  const lowerBound = (pred: (name: string) => boolean) => {
+    let lo = 0
+    let hi = lines.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (pred(lines[mid].name)) hi = mid
+      else lo = mid + 1
+    }
+    return lo
+  }
+  const start = lowerBound((name) => name >= prefix)
+  const end = lowerBound((name) => name >= prefix && !name.startsWith(prefix))
+  return [start, Math.max(start, end)]
+}
+
+/** Book moves per position for the chosen opening: its own lines plus every sub-variation. */
+export type BookTree = Map<FenKey, Uci[]>
+
+export function bookTree(book: Book, openingName: string): BookTree {
+  const tree: BookTree = new Map()
+  const [start, end] = prefixRange(book.lines, openingName)
+  for (const line of book.lines.slice(start, end)) {
+    line.moves.forEach((move, i) => {
+      const key = line.fenKeys[i]
+      const moves = tree.get(key)
+      if (!moves) tree.set(key, [move])
+      else if (!moves.includes(move)) moves.push(move)
+    })
+  }
+  return tree
+}
+
+export interface OpeningName {
+  name: string
+  eco: string
+  /** Whether the current position itself is a book position. */
+  inBook: boolean
+}
+
+/** The opening name for the last of `fens`: the most recent position along the game that has one. */
+export function openingAt(book: Book, fens: readonly string[]): OpeningName | null {
+  const inBook = book.positions.has(fenKey(fens[fens.length - 1]))
+  for (let i = fens.length - 1; i >= 0; i--) {
+    const position = book.positions.get(fenKey(fens[i]))
+    if (position?.name && position.eco) return { name: position.name, eco: position.eco, inBook }
+  }
+  return null
+}

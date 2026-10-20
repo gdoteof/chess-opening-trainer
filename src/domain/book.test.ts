@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest'
+import { bookTree, buildBook, openingAt, parseOpeningsTsv } from './book'
+import { fenKey, playUci, START_FEN } from './chess'
+
+const tsv = [
+  'eco\tname\tpgn',
+  'C50\tItalian Game\t1. e4 e5 2. Nf3 Nc6 3. Bc4',
+  'C55\tItalian Game: Two Knights Defense\t1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6',
+  'C50\tItalian Game: Giuoco Piano\t1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5',
+  'C44\tKing\'s Pawn Game\t1. e4 e5 2. Nf3',
+  'C60\tRuy Lopez\t1. e4 e5 2. Nf3 Nc6 3. Bb5',
+  'A40\tQueen\'s Pawn Game\t1. d4',
+  'A45\tIndian Defense\t1. d4 Nf6',
+  'A50\tIndian Game: transposed\t1. Nf3 Nf6 2. d4',
+].join('\n')
+
+const book = buildBook(parseOpeningsTsv(tsv))
+
+function fensAfter(...ucis: string[]): string[] {
+  const fens = [START_FEN]
+  for (const uci of ucis) fens.push(playUci(fens[fens.length - 1], uci)!.fen)
+  return fens
+}
+
+describe('parseOpeningsTsv', () => {
+  it('strips move numbers from the pgn column', () => {
+    expect(parseOpeningsTsv(tsv)[0]).toEqual({ eco: 'C50', name: 'Italian Game', sans: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4'] })
+  })
+})
+
+describe('buildBook', () => {
+  it('lists every book move from a position', () => {
+    const afterNc6 = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6').at(-1)!
+    expect(book.positions.get(fenKey(afterNc6))?.moves.sort()).toEqual(['f1b5', 'f1c4'])
+  })
+
+  it('merges transpositions by position', () => {
+    const viaD4 = fensAfter('d2d4', 'g8f6', 'g1f3').at(-1)!
+    const viaNf3 = fensAfter('g1f3', 'g8f6', 'd2d4').at(-1)!
+    expect(fenKey(viaD4)).toBe(fenKey(viaNf3))
+    expect(book.positions.get(fenKey(viaD4))?.name).toBe('Indian Game: transposed')
+  })
+
+  it('lists distinct names with the size of their tree', () => {
+    const italian = book.openings.find((o) => o.name === 'Italian Game')
+    expect(italian).toEqual({ name: 'Italian Game', eco: 'C50', lineCount: 3 })
+    expect(book.openings.map((o) => o.name)).toEqual([...book.openings.map((o) => o.name)].sort())
+  })
+})
+
+describe('bookTree', () => {
+  it('includes the chosen line and its sub-variations only', () => {
+    const tree = bookTree(book, 'Italian Game')
+    const afterBc4 = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4').at(-1)!
+    const afterNc6 = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6').at(-1)!
+    expect(tree.get(fenKey(afterBc4))?.sort()).toEqual(['f8c5', 'g8f6'])
+    expect(tree.get(fenKey(afterNc6))).toEqual(['f1c4'])
+    expect(tree.get(fenKey(START_FEN))).toEqual(['e2e4'])
+  })
+})
+
+describe('openingAt', () => {
+  it('names the position by the most recent named position', () => {
+    const fens = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6')
+    expect(openingAt(book, fens)).toEqual({ name: "King's Pawn Game", eco: 'C44', inBook: true })
+  })
+
+  it('keeps the last name once out of book', () => {
+    const fens = fensAfter('d2d4', 'g8f6', 'c2c4')
+    expect(openingAt(book, fens)).toEqual({ name: 'Indian Defense', eco: 'A45', inBook: false })
+  })
+})
