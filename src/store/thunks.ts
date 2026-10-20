@@ -1,6 +1,8 @@
 import { fenKey, playUci, type Uci } from '../domain/chess'
+import { explorerMoved, openingChosen } from './drillSlice'
 import { currentFenOf, gameCleared, gameStarted, playerMoved } from './gameSlice'
 import type { AppThunk } from './index'
+import { selectExplorerFen } from './selectors'
 import { modeChanged, type Mode } from './settingsSlice'
 
 /** Plays the player's move if it is legal and it is their turn; returns whether it was played. */
@@ -25,6 +27,25 @@ export const attemptPlayerMove =
       dispatch(playerMoved({ move, judge: true, bookMoves: null }))
     }
     return true
+  }
+
+/** Plays a move on the explorer board; only book moves are allowed. */
+export const attemptExplorerMove =
+  (uci: Uci): AppThunk<boolean> =>
+  (dispatch, getState, services) => {
+    const fen = selectExplorerFen(getState())
+    const move = playUci(fen, uci)
+    const bookMoves = services.book.positions.get(fenKey(fen))?.moves ?? []
+    if (!move || !bookMoves.includes(move.uci)) return false
+    dispatch(explorerMoved(move))
+    return true
+  }
+
+export const chooseOpening =
+  (name: string): AppThunk =>
+  (dispatch) => {
+    dispatch(openingChosen(name))
+    dispatch(startDrill())
   }
 
 export const startDrill = (): AppThunk => (dispatch, getState) => {

@@ -635,6 +635,27 @@ input {
   margin: 0;
 }
 
+.explorer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.explorer-hint,
+.explorer-line {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.explorer-line strong {
+  color: var(--ink);
+}
+
+.explorer-end {
+  display: block;
+}
+
 .strength {
   display: flex;
   align-items: center;

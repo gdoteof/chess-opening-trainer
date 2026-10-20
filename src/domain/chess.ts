@@ -59,6 +59,19 @@ export function legalUcis(fen: string): Uci[] {
   return legalMoves(fen).map(uciOf)
 }
 
+/** "1. e4 c5 2. Nf3" (or "3… Nc6 4. Bb5" when the line starts with Black to move). */
+export function formatLine(startFen: string, moves: readonly PlayedMove[]): string {
+  const start = moveNumberOf(startFen)
+  return moves
+    .map((move, i) => {
+      const ply = (start.color === 'b' ? 1 : 0) + i
+      const number = start.number + Math.floor(ply / 2)
+      if (ply % 2 === 0) return `${number}. ${move.san}`
+      return i === 0 ? `${number}… ${move.san}` : move.san
+    })
+    .join(' ')
+}
+
 /** Fullmove number and side to move, for numbering moves in a list. */
 export function moveNumberOf(fen: string): { number: number; color: Color } {
   const parts = fen.split(' ')

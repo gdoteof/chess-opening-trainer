@@ -3,7 +3,8 @@
 A browser chess trainer for beginners, with two modes:
 
 - **Drill an opening.** Pick a named opening (and its sub-variations) and a side. The app plays the
-  other side from the book; you have to find the book moves.
+  other side from the book; you have to find the book moves. While choosing, you can play book
+  moves on the board to narrow the list to openings that reach that position, by any move order.
 - **Play the bot.** Play Stockfish at a rating from about 400 to 2800, or at full strength.
 
 In both modes, when you pick up a piece its legal destinations are colored by how good each move

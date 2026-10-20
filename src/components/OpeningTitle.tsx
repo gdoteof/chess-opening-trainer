@@ -1,11 +1,14 @@
 import { openingAt } from '../domain/book'
 import { useAppSelector, useBook } from '../store/hooks'
-import { selectGameFens } from '../store/selectors'
+import { selectExplorerFens, selectExploring, selectGameFens } from '../store/selectors'
 
 /** The opening name for the game position, set large: it changes as the game moves through the book. */
 export function OpeningTitle() {
   const book = useBook()
-  const fens = useAppSelector(selectGameFens)
+  const exploring = useAppSelector(selectExploring)
+  const gameFens = useAppSelector(selectGameFens)
+  const explorerFens = useAppSelector(selectExplorerFens)
+  const fens = exploring ? explorerFens : gameFens
   const mode = useAppSelector((state) => state.game.mode)
   const opening = openingAt(book, fens)
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bookTree, buildBook, openingAt, parseOpeningsTsv } from './book'
+import { bookTree, buildBook, namesAlong, openingAt, openingsThrough, parseOpeningsTsv, rankForGame } from './book'
 import { fenKey, playUci, START_FEN } from './chess'
 
 const tsv = [
@@ -12,6 +12,9 @@ const tsv = [
   'A40\tQueen\'s Pawn Game\t1. d4',
   'A45\tIndian Defense\t1. d4 Nf6',
   'A50\tIndian Game: transposed\t1. Nf3 Nf6 2. d4',
+  'B20\tSicilian Defense\t1. e4 c5',
+  'A02\tBird Opening\t1. f4',
+  'A02\tBird Opening: Sicilian Transposition\t1. e4 c5 2. f4',
 ].join('\n')
 
 const book = buildBook(parseOpeningsTsv(tsv))
@@ -68,5 +71,64 @@ describe('openingAt', () => {
   it('keeps the last name once out of book', () => {
     const fens = fensAfter('d2d4', 'g8f6', 'c2c4')
     expect(openingAt(book, fens)).toEqual({ name: 'Indian Defense', eco: 'A45', inBook: false })
+  })
+})
+
+describe('openingsThrough', () => {
+  const names = (...ucis: string[]) => openingsThrough(book, fensAfter(...ucis)).map((o) => o.name)
+
+  it('keeps openings with a line through the position', () => {
+    expect(names('e2e4', 'e7e5', 'g1f3', 'b8c6')).toEqual([
+      'Italian Game',
+      'Italian Game: Giuoco Piano',
+      'Italian Game: Two Knights Defense',
+      'Ruy Lopez',
+    ])
+  })
+
+  it('keeps a family named along the way when its sub-variations go on', () => {
+    expect(names('e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'g8f6')).toEqual([
+      'Italian Game',
+      'Italian Game: Two Knights Defense',
+    ])
+  })
+
+  it('leaves out a family that only a stray sub-variation connects', () => {
+    expect(names('e2e4', 'c7c5')).toEqual(['Bird Opening: Sicilian Transposition', 'Sicilian Defense'])
+  })
+
+  it('finds openings reached by another move order', () => {
+    expect(names('d2d4', 'g8f6', 'g1f3')).toEqual(['Indian Game: transposed'])
+  })
+
+  it('keeps everything at the starting position', () => {
+    expect(openingsThrough(book, [START_FEN])).toHaveLength(book.openings.length)
+  })
+})
+
+describe('namesAlong', () => {
+  it('lists named positions along a game, deepest first', () => {
+    expect(namesAlong(book, fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4'))).toEqual([
+      'Italian Game',
+      "King's Pawn Game",
+    ])
+  })
+})
+
+describe('rankForGame', () => {
+  it('puts names along the game first, then the current family', () => {
+    const fens = fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4')
+    const ranked = rankForGame(book, fens, openingsThrough(book, fensAfter('e2e4', 'e7e5', 'g1f3', 'b8c6')))
+    expect(ranked.map((o) => o.name)).toEqual([
+      'Italian Game',
+      'Italian Game: Giuoco Piano',
+      'Italian Game: Two Knights Defense',
+      'Ruy Lopez',
+    ])
+    const afterC5 = fensAfter('e2e4', 'c7c5')
+    expect(rankForGame(book, afterC5, openingsThrough(book, afterC5)).map((o) => o.name)).toEqual([
+      'Sicilian Defense',
+      'Bird Opening: Sicilian Transposition',
+    ])
   })
 })

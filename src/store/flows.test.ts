@@ -5,12 +5,13 @@ import { fenKey, legalUcis, playUci, START_FEN } from '../domain/chess'
 import { cp } from '../domain/score'
 import type { AnalysisJob, AnalysisRequest, EngineService } from '../engine/EngineService'
 import { botSideChosen, strengthChosen } from './botSlice'
-import { drillSideChosen, openingChosen } from './drillSlice'
+import { browsingStarted, drillSideChosen, explorerUndone, openingChosen } from './drillSlice'
 import { engineReady } from './engineSlice'
 import { tookBack } from './gameSlice'
 import { createAppStore } from './index'
 import { createServices } from './services'
-import { attemptPlayerMove, startBotGame, startDrill, switchMode } from './thunks'
+import { selectBoardFen, selectExploring } from './selectors'
+import { attemptExplorerMove, attemptPlayerMove, chooseOpening, startBotGame, startDrill, switchMode } from './thunks'
 
 /** Answers every search instantly: scripted lines where given, 0.00 for every other move. */
 class ScriptedEngine {
@@ -109,6 +110,34 @@ describe('opening drill', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(store.getState().game.moves.map((m) => m.san)).toEqual(['e4'])
     expect(store.getState().game.phase).toBe('player')
+  })
+})
+
+describe('choosing an opening', () => {
+  it('explores book moves on the board before a drill starts', () => {
+    const { store } = setup()
+    expect(selectExploring(store.getState())).toBe(true)
+    expect(store.dispatch(attemptExplorerMove('e2e4'))).toBe(true)
+    expect(store.dispatch(attemptExplorerMove('d7d5'))).toBe(false)
+    expect(store.dispatch(attemptExplorerMove('e7e5'))).toBe(true)
+    expect(selectBoardFen(store.getState())).toBe(after('e2e4', 'e7e5'))
+    store.dispatch(explorerUndone())
+    expect(selectBoardFen(store.getState())).toBe(after('e2e4'))
+  })
+
+  it('starts the chosen drill from the first move and returns to the explorer to change it', async () => {
+    const { store } = setup()
+    store.dispatch(attemptExplorerMove('e2e4'))
+    store.dispatch(chooseOpening('Italian Game'))
+    expect(selectExploring(store.getState())).toBe(false)
+    expect(selectBoardFen(store.getState())).toBe(START_FEN)
+    store.dispatch(attemptPlayerMove('e2e4'))
+    await vi.advanceTimersByTimeAsync(1000)
+
+    store.dispatch(browsingStarted())
+    expect(selectBoardFen(store.getState())).toBe(after('e2e4'))
+    expect(store.dispatch(attemptPlayerMove('g1f3'))).toBe(true)
+    expect(store.getState().drill.explorer).toHaveLength(1)
   })
 })
 

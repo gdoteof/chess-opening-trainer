@@ -1,6 +1,7 @@
 import { describeOutcome } from '../domain/outcome'
 import { QUALITY_LABEL } from '../domain/quality'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
+import { selectExploring } from '../store/selectors'
 import { startBotGame, startDrill } from '../store/thunks'
 import { ReviewPanel } from './ReviewPanel'
 
@@ -9,7 +10,15 @@ export function StatusPanel() {
   const game = useAppSelector((state) => state.game)
   const engineStatus = useAppSelector((state) => state.engine.status)
   const hasOpening = useAppSelector((state) => state.drill.opening !== null)
+  const exploring = useAppSelector(selectExploring)
 
+  if (exploring) {
+    return (
+      <section className="status" aria-live="polite">
+        <p className="status-message">Choose an opening to drill.</p>
+      </section>
+    )
+  }
   if (game.phase === 'review') return <ReviewPanel />
 
   const drill = game.mode === 'drill'
@@ -18,7 +27,7 @@ export function StatusPanel() {
   switch (game.phase) {
     case 'setup':
       message = drill
-        ? 'Choose an opening below, and the side you want to play.'
+        ? 'Choose an opening to drill.'
         : engineStatus === 'failed'
           ? 'The bot needs Stockfish, which failed to start.'
           : 'Choose a strength and a color, then start a game.'

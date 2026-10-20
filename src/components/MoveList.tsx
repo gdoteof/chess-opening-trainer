@@ -1,9 +1,11 @@
 import { moveNumberOf, type PlayedMove } from '../domain/chess'
 import { useAppSelector } from '../store/hooks'
+import { selectExploring } from '../store/selectors'
 
 export function MoveList() {
   const { moves, startFen } = useAppSelector((state) => state.game)
-  if (moves.length === 0) return null
+  const exploring = useAppSelector(selectExploring)
+  if (moves.length === 0 || exploring) return null
   const start = moveNumberOf(startFen)
   const rows: { number: number; white?: PlayedMove; black?: PlayedMove }[] = []
   moves.forEach((move, i) => {

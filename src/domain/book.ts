@@ -174,6 +174,57 @@ export function bookTree(book: Book, openingName: string): BookTree {
   return tree
 }
 
+/**
+ * The openings that reach the last of `fens` (a game from the starting position), by any
+ * move order. An opening qualifies when one of its own lines passes through the position,
+ * or when it names a position along the game and one of its sub-variations still reaches
+ * this one; a family whose only connection is a stray sub-variation does not.
+ */
+export function openingsThrough(book: Book, fens: readonly string[]): OpeningEntry[] {
+  const key = fenKey(fens[fens.length - 1])
+  const own = new Set<string>()
+  // passing[i] = number of lines before index i that pass through the position.
+  const passing = [0]
+  book.lines.forEach((line, i) => {
+    const passes = line.fenKeys.includes(key)
+    if (passes) own.add(line.name)
+    passing.push(passing[i] + (passes ? 1 : 0))
+  })
+  const path = new Set(namesAlong(book, fens))
+  return book.openings.filter((opening) => {
+    if (own.has(opening.name)) return true
+    if (!path.has(opening.name)) return false
+    const [start, end] = prefixRange(book.lines, opening.name)
+    return passing[end] - passing[start] > 0
+  })
+}
+
+/** Names of the named positions along a game, deepest first, without repeats. */
+export function namesAlong(book: Book, fens: readonly string[]): string[] {
+  const names: string[] = []
+  for (let i = fens.length - 1; i >= 0; i--) {
+    const name = book.positions.get(fenKey(fens[i]))?.name
+    if (name && !names.includes(name)) names.push(name)
+  }
+  return names
+}
+
+/**
+ * Orders openings for a position reached by the game `fens`: names along the game first
+ * (deepest first), then the rest of the current position's family, then everything else.
+ * The sort is stable, so each group keeps its incoming (alphabetical) order.
+ */
+export function rankForGame(book: Book, fens: readonly string[], openings: OpeningEntry[]): OpeningEntry[] {
+  const path = namesAlong(book, fens)
+  const family = path[0]?.split(':')[0]
+  const rank = (name: string) => {
+    const index = path.indexOf(name)
+    if (index >= 0) return index
+    return family && name.startsWith(`${family}:`) ? path.length : path.length + 1
+  }
+  return [...openings].sort((a, b) => rank(a.name) - rank(b.name))
+}
+
 export interface OpeningName {
   name: string
   eco: string

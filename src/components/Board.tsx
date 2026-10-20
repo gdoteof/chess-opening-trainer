@@ -2,11 +2,11 @@ import { Chess } from 'chess.js'
 import { useMemo, useState, type CSSProperties } from 'react'
 import { Chessboard, type Arrow } from 'react-chessboard'
 import { config } from '../config'
-import { legalMoves, parseUci, uciOf, type Square, type Uci } from '../domain/chess'
+import { fenKey, legalMoves, parseUci, sideToMove, uciOf, type Square, type Uci } from '../domain/chess'
 import { destinationQualities, judgeMove, type Quality } from '../domain/quality'
-import { useAppDispatch, useAppSelector } from '../store/hooks'
-import { selectBoardFen, selectBoardLastMove, selectHintAnalysis } from '../store/selectors'
-import { attemptPlayerMove } from '../store/thunks'
+import { useAppDispatch, useAppSelector, useBook } from '../store/hooks'
+import { selectBoardFen, selectBoardLastMove, selectExploring, selectHintAnalysis } from '../store/selectors'
+import { attemptExplorerMove, attemptPlayerMove } from '../store/thunks'
 import { PromotionPicker } from './PromotionPicker'
 
 type Marker = Quality | 'pending' | 'plain'
@@ -34,18 +34,30 @@ function markerStyle(marker: Marker, capture: boolean): CSSProperties {
 
 export function Board() {
   const dispatch = useAppDispatch()
+  const book = useBook()
   const fen = useAppSelector(selectBoardFen)
   const lastMove = useAppSelector(selectBoardLastMove)
   const hintAnalysis = useAppSelector(selectHintAnalysis)
+  const exploring = useAppSelector(selectExploring)
+  const drillSide = useAppSelector((state) => state.drill.side)
   const { phase, player, review } = useAppSelector((state) => state.game)
-  const interactive = phase === 'player'
+  // On the explorer board either side moves; in a game only the player, on their turn.
+  const mover = exploring ? sideToMove(fen) : phase === 'player' ? player : null
+  const interactive = mover !== null
+  const orientation = exploring ? drillSide : player
+  const submit = (uci: Uci) => dispatch(exploring ? attemptExplorerMove(uci) : attemptPlayerMove(uci))
 
   const [selection, setSelection] = useState<{ fen: string; square: Square } | null>(null)
   const [promotion, setPromotion] = useState<{ fen: string; options: Uci[] } | null>(null)
   const selected = selection?.fen === fen && interactive ? selection.square : null
   const pendingPromotion = promotion?.fen === fen && interactive ? promotion.options : null
 
-  const legal = useMemo(() => (interactive ? legalMoves(fen) : []), [fen, interactive])
+  const legal = useMemo(() => {
+    if (!interactive) return []
+    if (!exploring) return legalMoves(fen)
+    const bookMoves = book.positions.get(fenKey(fen))?.moves ?? []
+    return legalMoves(fen).filter((m) => bookMoves.includes(uciOf(m)))
+  }, [book, exploring, fen, interactive])
   const checkedKing = useMemo(() => kingInCheck(fen), [fen])
   const destinations = selected ? legal.filter((m) => m.from === selected) : []
 
@@ -57,7 +69,7 @@ export function Board() {
       setPromotion({ fen, options: candidates.map(uciOf) })
       return false
     }
-    return dispatch(attemptPlayerMove(uciOf(candidates[0])))
+    return submit(uciOf(candidates[0]))
   }
 
   const select = (square: string | null) => {
@@ -86,7 +98,7 @@ export function Board() {
   }
 
   const arrows: Arrow[] =
-    review?.bookMoves && !review.proof
+    review?.bookMoves && !review.proof && !exploring
       ? review.bookMoves.map((m) => ({
           startSquare: m.uci.slice(0, 2),
           endSquare: m.uci.slice(2, 4),
@@ -105,7 +117,7 @@ export function Board() {
         options={{
           id: 'trainer',
           position: fen,
-          boardOrientation: player === 'w' ? 'white' : 'black',
+          boardOrientation: orientation === 'w' ? 'white' : 'black',
           allowDragging: interactive,
           allowDrawingArrows: false,
           arrows,
@@ -115,7 +127,7 @@ export function Board() {
           darkSquareStyle: { backgroundColor: 'var(--board-dark)' },
           lightSquareNotationStyle: { color: 'var(--board-dark)' },
           darkSquareNotationStyle: { color: 'var(--board-light)' },
-          canDragPiece: ({ piece }) => interactive && piece.pieceType[0] === player,
+          canDragPiece: ({ piece }) => piece.pieceType[0] === mover,
           onPieceDrag: ({ square }) => select(square),
           onPieceDrop: ({ sourceSquare, targetSquare }) => (targetSquare ? play(sourceSquare, targetSquare) : false),
           onSquareClick: ({ square }) => {
@@ -126,12 +138,12 @@ export function Board() {
       />
       {pendingPromotion && (
         <PromotionPicker
-          color={player}
+          color={mover ?? player}
           options={pendingPromotion}
           qualities={promotionQualities}
           onPick={(uci) => {
             setPromotion(null)
-            dispatch(attemptPlayerMove(uci))
+            submit(uci)
           }}
           onCancel={() => setPromotion(null)}
         />

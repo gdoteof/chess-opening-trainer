@@ -1,7 +1,7 @@
 import { createSelector } from '@reduxjs/toolkit'
 import { config } from '../config'
 import { bestLine, type PositionAnalysis } from '../domain/analysis'
-import { fenKey, sideToMove } from '../domain/chess'
+import { fenKey, sideToMove, START_FEN } from '../domain/chess'
 import { negate, type Score } from '../domain/score'
 import { currentFenOf } from './gameSlice'
 import type { RootState } from './index'
@@ -13,11 +13,22 @@ export const selectCurrentFen = (state: RootState) => currentFenOf(state.game)
 /** Every position of the game so far, starting position first. */
 export const selectGameFens = createSelector([selectGame], (game) => [game.startFen, ...game.moves.map((m) => m.fen)])
 
+/** Choosing a drill opening, with the board as an explorer of book moves. */
+export const selectExploring = (state: RootState) => state.settings.mode === 'drill' && state.drill.browsing
+
+export const selectExplorerFen = (state: RootState) => state.drill.explorer.at(-1)?.fen ?? START_FEN
+
+export const selectExplorerFens = createSelector([(state: RootState) => state.drill.explorer], (moves) => [
+  START_FEN,
+  ...moves.map((m) => m.fen),
+])
+
 export const selectAnalysis = (state: RootState, fen: string): PositionAnalysis | undefined =>
   state.engine.analyses[fenKey(fen)]
 
-/** The position shown on the board: a proof position while a proof is open, else the game. */
+/** The position shown on the board: the explorer, a proof position while a proof is open, else the game. */
 export const selectBoardFen = (state: RootState): string => {
+  if (selectExploring(state)) return selectExplorerFen(state)
   const proof = state.game.review?.proof
   if (proof) return proof.cursor === 0 ? state.game.review!.preFen : proof.moves[proof.cursor - 1].fen
   return selectCurrentFen(state)
@@ -25,18 +36,25 @@ export const selectBoardFen = (state: RootState): string => {
 
 /** The last move shown on the board, for highlighting. */
 export const selectBoardLastMove = (state: RootState) => {
+  if (selectExploring(state)) return state.drill.explorer.at(-1)
   const proof = state.game.review?.proof
   if (proof) return proof.cursor === 0 ? undefined : proof.moves[proof.cursor - 1]
   return state.game.moves.at(-1)
 }
 
 /**
- * Analysis of the player's position for coloring destinations: the analysis once it is deep
- * enough, 'pending' while it is not, null when hints don't apply.
+ * Analysis of the position the player is moving in, for coloring destinations: the analysis
+ * once it is deep enough, 'pending' while it is not, null when hints don't apply.
  */
 export const selectHintAnalysis = (state: RootState): PositionAnalysis | 'pending' | null => {
-  if (!state.settings.hints || state.game.phase !== 'player') return null
-  const analysis = selectAnalysis(state, selectCurrentFen(state))
+  if (!state.settings.hints) return null
+  const fen = selectExploring(state)
+    ? selectExplorerFen(state)
+    : state.game.phase === 'player'
+      ? selectCurrentFen(state)
+      : null
+  if (!fen) return null
+  const analysis = selectAnalysis(state, fen)
   return analysis && analysis.depth >= config.analysis.minDepth ? analysis : 'pending'
 }
 
@@ -58,8 +76,9 @@ export const selectAnalysisTarget = (state: RootState): string | null => {
   const { game } = state
   const review = game.review
   if (review?.proof?.status.kind === 'needsMore') return review.proof.status.fromFen
+  if (game.phase === 'judging') return review?.preFen ?? null
+  if (selectExploring(state)) return selectExplorerFen(state)
   switch (game.phase) {
-    case 'judging':
     case 'review':
       return review?.preFen ?? null
     case 'opponent':
